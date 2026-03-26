@@ -74,7 +74,7 @@ func Go(plan *resolve.Plan) ([]byte, error) {
 		switch lifecycle.Spec.Kind {
 		case model.StartStopLifecycle:
 			target := renderSource(lifecycle.Source, variables)
-			startCall, err := renderMethodCall(lifecycle.Source.Provider.Output, target, lifecycle.Spec.Start, true)
+			startCall, err := renderLifecycleMethodCall(lifecycle.Spec.OnStart, target)
 			if err != nil {
 				return nil, err
 			}
@@ -87,7 +87,7 @@ func Go(plan *resolve.Plan) ([]byte, error) {
 				fmt.Fprintf(&body, "\t%s\n", startCall.Expr)
 			}
 
-			stopCall, err := renderMethodCall(lifecycle.Source.Provider.Output, target, lifecycle.Spec.Stop, true)
+			stopCall, err := renderLifecycleMethodCall(lifecycle.Spec.OnStop, target)
 			if err != nil {
 				return nil, err
 			}
@@ -155,6 +155,31 @@ func Go(plan *resolve.Plan) ([]byte, error) {
 type methodCall struct {
 	Expr     string
 	HasError bool
+}
+
+func renderLifecycleMethodCall(fn *model.Function, target string) (methodCall, error) {
+	if fn == nil {
+		return methodCall{}, fmt.Errorf("lifecycle method is required")
+	}
+
+	switch len(fn.Inputs) {
+	case 1:
+		return methodCall{
+			Expr:     fmt.Sprintf("%s.%s()", target, fn.Name),
+			HasError: fn.ReturnsError,
+		}, nil
+	case 2:
+		if typeKey(fn.Inputs[1]) != "context.Context" {
+			return methodCall{}, fmt.Errorf("method %s has unsupported parameters", fn.Name)
+		}
+
+		return methodCall{
+			Expr:     fmt.Sprintf("%s.%s(ctx)", target, fn.Name),
+			HasError: fn.ReturnsError,
+		}, nil
+	default:
+		return methodCall{}, fmt.Errorf("method %s has unsupported parameters", fn.Name)
+	}
 }
 
 func renderMethodCall(targetType types.Type, target string, method string, allowContext bool) (methodCall, error) {

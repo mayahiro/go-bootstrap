@@ -2,7 +2,7 @@
 
 `simpleapi` is a minimal server example built with `go-bootstrap` and `bootstrapgen`.
 
-It demonstrates reusable `bootstrap.Module(...)` composition and an entry parameter struct that embeds `bootstrap.In`.
+It demonstrates reusable `bootstrap.Module(...)` composition, typed `bootstrap.StartStop(...)`, and an entry parameter struct that embeds `bootstrap.In`.
 
 ## Layout
 

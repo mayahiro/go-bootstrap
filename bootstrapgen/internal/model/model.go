@@ -23,16 +23,18 @@ func (position Position) String() string {
 }
 
 type Spec struct {
-	Kind        string
-	Name        string
-	Position    Position
-	PackageName string
-	PackagePath string
-	Directory   string
-	Providers   []Provider
-	Bindings    []Binding
-	Entry       Entry
-	Lifecycles  []Lifecycle
+	Kind             string
+	Name             string
+	Position         Position
+	PackageName      string
+	PackagePath      string
+	Directory        string
+	Providers        []Provider
+	Overrides        []Provider
+	Bindings         []Binding
+	OverrideBindings []Binding
+	Entry            Entry
+	Lifecycles       []Lifecycle
 }
 
 type Field struct {
@@ -92,8 +94,6 @@ const (
 type Lifecycle struct {
 	Kind     LifecycleKind
 	Target   types.Type
-	Start    string
-	Stop     string
 	OnStart  *Function
 	OnStop   *Function
 	Position Position

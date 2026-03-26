@@ -27,7 +27,7 @@ var serverModule = bootstrap.Module(
 		(*httpserver.Server)(nil),
 	),
 	bootstrap.Lifecycle(
-		bootstrap.StartStop((*httpserver.Server)(nil), "Start", "Stop"),
+		bootstrap.StartStop((*httpserver.Server).Start, (*httpserver.Server).Stop),
 	),
 )
 

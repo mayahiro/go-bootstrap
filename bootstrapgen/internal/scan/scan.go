@@ -33,6 +33,11 @@ type moduleRef struct {
 	Position model.Position
 }
 
+type optionMode struct {
+	inModule   bool
+	inOverride bool
+}
+
 func Package(pkg *packages.Package, fset *token.FileSet) (*model.Spec, error) {
 	scan := &scanner{
 		fset:     fset,
@@ -105,7 +110,7 @@ func (scan *scanner) parseSpec(pkg *packages.Package, kind string, call *ast.Cal
 		Position: positionAt(scan.fset, call.Pos()),
 	}
 
-	if err := scan.applyOptions(spec, pkg, call.Args[1:], nil, false); err != nil {
+	if err := scan.applyOptions(spec, pkg, call.Args[1:], nil, optionMode{}); err != nil {
 		return nil, err
 	}
 
@@ -116,14 +121,14 @@ func (scan *scanner) parseSpec(pkg *packages.Package, kind string, call *ast.Cal
 	return spec, nil
 }
 
-func (scan *scanner) applyOptions(spec *model.Spec, pkg *packages.Package, args []ast.Expr, stack []moduleRef, inModule bool) error {
+func (scan *scanner) applyOptions(spec *model.Spec, pkg *packages.Package, args []ast.Expr, stack []moduleRef, mode optionMode) error {
 	for _, arg := range args {
 		option, ok := arg.(*ast.CallExpr)
 		if !ok {
 			return nodeError(scan.fset, arg, "bootstrap option must be a call")
 		}
 
-		optionName, ok := bootstrapCall(pkg.TypesInfo, option.Fun, "Provide", "Bind", "Entry", "Lifecycle", "Include")
+		optionName, ok := bootstrapCall(pkg.TypesInfo, option.Fun, "Provide", "Bind", "Entry", "Lifecycle", "Include", "Override")
 		if !ok {
 			return nodeError(scan.fset, option, "unsupported bootstrap option")
 		}
@@ -134,6 +139,11 @@ func (scan *scanner) applyOptions(spec *model.Spec, pkg *packages.Package, args 
 				provider, err := parseProvider(pkg, scan.fset, ctor)
 				if err != nil {
 					return err
+				}
+
+				if mode.inOverride {
+					spec.Overrides = append(spec.Overrides, provider)
+					continue
 				}
 
 				spec.Providers = append(spec.Providers, provider)
@@ -153,14 +163,24 @@ func (scan *scanner) applyOptions(spec *model.Spec, pkg *packages.Package, args 
 				return nodeMessage(scan.fset, option.Args[1], err.Error())
 			}
 
-			spec.Bindings = append(spec.Bindings, model.Binding{
+			binding := model.Binding{
 				Interface:      iface,
 				Implementation: impl,
 				Position:       positionAt(scan.fset, option.Pos()),
-			})
+			}
+
+			if mode.inOverride {
+				spec.OverrideBindings = append(spec.OverrideBindings, binding)
+				continue
+			}
+
+			spec.Bindings = append(spec.Bindings, binding)
 		case "Entry":
-			if inModule {
+			switch {
+			case mode.inModule:
 				return nodeError(scan.fset, option, "Entry is not allowed inside Module")
+			case mode.inOverride:
+				return nodeError(scan.fset, option, "Entry is not allowed inside Override")
 			}
 
 			if len(option.Args) != 1 {
@@ -174,19 +194,35 @@ func (scan *scanner) applyOptions(spec *model.Spec, pkg *packages.Package, args 
 
 			spec.Entry = entry
 		case "Lifecycle":
-			for _, hook := range option.Args {
-				lifecycle, err := parseLifecycle(pkg, scan.fset, hook)
-				if err != nil {
-					return err
-				}
+			switch {
+			case mode.inOverride:
+				return nodeError(scan.fset, option, "Lifecycle is not allowed inside Override")
+			default:
+				for _, hook := range option.Args {
+					lifecycle, err := parseLifecycle(pkg, scan.fset, hook)
+					if err != nil {
+						return err
+					}
 
-				spec.Lifecycles = append(spec.Lifecycles, lifecycle)
+					spec.Lifecycles = append(spec.Lifecycles, lifecycle)
+				}
 			}
 		case "Include":
 			for _, moduleExpr := range option.Args {
-				if err := scan.includeModule(spec, pkg, moduleExpr, stack); err != nil {
+				if err := scan.includeModule(spec, pkg, moduleExpr, stack, mode); err != nil {
 					return err
 				}
+			}
+		case "Override":
+			if len(option.Args) == 0 {
+				continue
+			}
+
+			if err := scan.applyOptions(spec, pkg, option.Args, stack, optionMode{
+				inModule:   mode.inModule,
+				inOverride: true,
+			}); err != nil {
+				return err
 			}
 		}
 	}
@@ -194,7 +230,7 @@ func (scan *scanner) applyOptions(spec *model.Spec, pkg *packages.Package, args 
 	return nil
 }
 
-func (scan *scanner) includeModule(spec *model.Spec, pkg *packages.Package, expr ast.Expr, stack []moduleRef) error {
+func (scan *scanner) includeModule(spec *model.Spec, pkg *packages.Package, expr ast.Expr, stack []moduleRef, mode optionMode) error {
 	modulePkg, call, ref, err := scan.resolveModule(pkg, expr)
 	if err != nil {
 		return err
@@ -215,14 +251,13 @@ func (scan *scanner) includeModule(spec *model.Spec, pkg *packages.Package, expr
 		stack = append(stack, ref)
 	}
 
-	return scan.parseModuleCall(spec, modulePkg, call, stack)
+	return scan.parseModuleCall(spec, modulePkg, call, stack, mode)
 }
 
 func (scan *scanner) resolveModule(pkg *packages.Package, expr ast.Expr) (*packages.Package, *ast.CallExpr, moduleRef, error) {
 	expr = unwrap(expr)
 
-	call, ok := expr.(*ast.CallExpr)
-	if ok {
+	if call, ok := expr.(*ast.CallExpr); ok {
 		if _, match := bootstrapCall(pkg.TypesInfo, call.Fun, "Module"); match {
 			return pkg, call, moduleRef{}, nil
 		}
@@ -244,7 +279,7 @@ func (scan *scanner) resolveModule(pkg *packages.Package, expr ast.Expr) (*packa
 		return nil, nil, moduleRef{}, nodeError(scan.fset, expr, "module %s must be declared with bootstrap.Module(...)", obj.Name())
 	}
 
-	call, ok = unwrap(initExpr).(*ast.CallExpr)
+	call, ok := unwrap(initExpr).(*ast.CallExpr)
 	if !ok {
 		return nil, nil, moduleRef{}, nodeError(scan.fset, initExpr, "module %s must be declared with bootstrap.Module(...)", obj.Name())
 	}
@@ -260,8 +295,11 @@ func (scan *scanner) resolveModule(pkg *packages.Package, expr ast.Expr) (*packa
 	}, nil
 }
 
-func (scan *scanner) parseModuleCall(spec *model.Spec, pkg *packages.Package, call *ast.CallExpr, stack []moduleRef) error {
-	return scan.applyOptions(spec, pkg, call.Args, stack, true)
+func (scan *scanner) parseModuleCall(spec *model.Spec, pkg *packages.Package, call *ast.CallExpr, stack []moduleRef, mode optionMode) error {
+	return scan.applyOptions(spec, pkg, call.Args, stack, optionMode{
+		inModule:   true,
+		inOverride: mode.inOverride,
+	})
 }
 
 func parseProvider(pkg *packages.Package, fset *token.FileSet, expr ast.Expr) (model.Provider, error) {
@@ -319,7 +357,6 @@ func parseEntry(pkg *packages.Package, fset *token.FileSet, expr ast.Expr) (mode
 	}
 
 	inputs := make([]model.EntryInput, 0, sig.Params().Len())
-	paramsStructCount := 0
 	for index := range sig.Params().Len() {
 		param := sig.Params().At(index)
 		input := model.EntryInput{
@@ -327,12 +364,12 @@ func parseEntry(pkg *packages.Package, fset *token.FileSet, expr ast.Expr) (mode
 			Position: positionAt(fset, param.Pos()),
 		}
 
-		fields, ok := parseParamsFields(fset, param.Type())
+		fields, ok, err := parseParamsFields(fset, param.Type())
+		if err != nil {
+			return model.Entry{}, nodeMessage(fset, expr, err.Error())
+		}
+
 		if ok {
-			paramsStructCount++
-			if paramsStructCount > 1 {
-				return model.Entry{}, nodeError(fset, expr, "entry %s can have at most one parameter struct embedding bootstrap.In", fn.Name())
-			}
 			input.Fields = fields
 		}
 
@@ -349,10 +386,10 @@ func parseEntry(pkg *packages.Package, fset *token.FileSet, expr ast.Expr) (mode
 	}, nil
 }
 
-func parseParamsFields(fset *token.FileSet, typ types.Type) ([]model.Field, bool) {
+func parseParamsFields(fset *token.FileSet, typ types.Type) ([]model.Field, bool, error) {
 	strct, ok := structType(typ)
 	if !ok {
-		return nil, false
+		return nil, false, nil
 	}
 
 	hasMarker := false
@@ -364,6 +401,10 @@ func parseParamsFields(fset *token.FileSet, typ types.Type) ([]model.Field, bool
 			continue
 		}
 
+		if containsBootstrapIn(field.Type(), map[string]bool{}) {
+			return nil, false, fmt.Errorf("nested bootstrap.In is not supported")
+		}
+
 		fields = append(fields, model.Field{
 			Name:     field.Name(),
 			Type:     field.Type(),
@@ -371,7 +412,7 @@ func parseParamsFields(fset *token.FileSet, typ types.Type) ([]model.Field, bool
 		})
 	}
 
-	return fields, hasMarker
+	return fields, hasMarker, nil
 }
 
 func parseLifecycle(pkg *packages.Package, fset *token.FileSet, expr ast.Expr) (model.Lifecycle, error) {
@@ -402,30 +443,29 @@ func parseLifecycle(pkg *packages.Package, fset *token.FileSet, expr ast.Expr) (
 			Position: positionAt(fset, call.Pos()),
 		}, nil
 	case "StartStop":
-		if len(call.Args) != 3 {
-			return model.Lifecycle{}, nodeError(fset, call, "StartStop requires target, start, stop")
+		if len(call.Args) != 2 {
+			return model.Lifecycle{}, nodeError(fset, call, "StartStop requires start and stop method expressions")
 		}
 
-		target, err := parseBindingType(pkg, call.Args[0])
+		start, target, err := parseStartStopMethod(pkg, fset, call.Args[0], "start")
 		if err != nil {
-			return model.Lifecycle{}, nodeMessage(fset, call.Args[0], err.Error())
+			return model.Lifecycle{}, err
 		}
 
-		start, err := stringLiteral(call.Args[1])
+		stop, stopTarget, err := parseStartStopMethod(pkg, fset, call.Args[1], "stop")
 		if err != nil {
-			return model.Lifecycle{}, nodeMessage(fset, call.Args[1], err.Error())
+			return model.Lifecycle{}, err
 		}
 
-		stop, err := stringLiteral(call.Args[2])
-		if err != nil {
-			return model.Lifecycle{}, nodeMessage(fset, call.Args[2], err.Error())
+		if !types.Identical(target, stopTarget) {
+			return model.Lifecycle{}, nodeError(fset, call, "StartStop methods must share the same receiver type")
 		}
 
 		return model.Lifecycle{
 			Kind:     model.StartStopLifecycle,
 			Target:   target,
-			Start:    start,
-			Stop:     stop,
+			OnStart:  start,
+			OnStop:   stop,
 			Position: positionAt(fset, call.Pos()),
 		}, nil
 	case "HookFunc":
@@ -456,6 +496,51 @@ func parseLifecycle(pkg *packages.Package, fset *token.FileSet, expr ast.Expr) (
 	default:
 		return model.Lifecycle{}, fmt.Errorf("unsupported lifecycle hook")
 	}
+}
+
+func parseStartStopMethod(pkg *packages.Package, fset *token.FileSet, expr ast.Expr, role string) (*model.Function, types.Type, error) {
+	fn, sig, err := parseFunction(pkg, expr)
+	if err != nil {
+		return nil, nil, nodeMessage(fset, expr, err.Error())
+	}
+
+	methodSig, ok := fn.Type().(*types.Signature)
+	if !ok || methodSig.Recv() == nil {
+		return nil, nil, nodeError(fset, expr, "StartStop %s must be a method expression", role)
+	}
+
+	if sig.Params().Len() == 0 || !types.Identical(sig.Params().At(0).Type(), methodSig.Recv().Type()) {
+		return nil, nil, nodeError(fset, expr, "StartStop %s must be a method expression", role)
+	}
+
+	switch sig.Params().Len() {
+	case 1:
+	case 2:
+		if !isContextType(sig.Params().At(1).Type()) {
+			return nil, nil, nodeError(fset, expr, "StartStop %s may only accept context.Context after the receiver", role)
+		}
+	default:
+		return nil, nil, nodeError(fset, expr, "StartStop %s has unsupported parameters", role)
+	}
+
+	switch sig.Results().Len() {
+	case 0:
+	case 1:
+		if !isErrorType(sig.Results().At(0).Type()) {
+			return nil, nil, nodeError(fset, expr, "StartStop %s result must be error", role)
+		}
+	default:
+		return nil, nil, nodeError(fset, expr, "StartStop %s must return nothing or error", role)
+	}
+
+	return &model.Function{
+		Name:         fn.Name(),
+		Position:     positionAt(fset, expr.Pos()),
+		PackageName:  packageName(fn.Pkg()),
+		PackagePath:  packagePath(fn.Pkg()),
+		Inputs:       tupleTypes(sig.Params()),
+		ReturnsError: sig.Results().Len() == 1,
+	}, sig.Params().At(0).Type(), nil
 }
 
 func parseHookFunction(pkg *packages.Package, fset *token.FileSet, expr ast.Expr) (*model.Function, error) {
@@ -637,6 +722,33 @@ func isBootstrapInType(typ types.Type) bool {
 	return typeKey(typ) == bootstrapPackagePath+".In"
 }
 
+func containsBootstrapIn(typ types.Type, seen map[string]bool) bool {
+	key := typeKey(typ)
+	if seen[key] {
+		return false
+	}
+	seen[key] = true
+
+	if isBootstrapInType(typ) {
+		return true
+	}
+
+	switch value := typ.(type) {
+	case *types.Pointer:
+		return containsBootstrapIn(value.Elem(), seen)
+	case *types.Named:
+		return containsBootstrapIn(value.Underlying(), seen)
+	case *types.Struct:
+		for index := range value.NumFields() {
+			if containsBootstrapIn(value.Field(index).Type(), seen) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func structType(typ types.Type) (*types.Struct, bool) {
 	switch value := typ.(type) {
 	case *types.Named:
@@ -660,6 +772,7 @@ func unwrap(expr ast.Expr) ast.Expr {
 		if !ok {
 			return expr
 		}
+
 		expr = paren.X
 	}
 }
@@ -723,6 +836,7 @@ func collectPackages(root *packages.Package) map[string]*packages.Package {
 		if pkg == nil || pkg.PkgPath == "" {
 			return
 		}
+
 		if _, exists := collected[pkg.PkgPath]; exists {
 			return
 		}

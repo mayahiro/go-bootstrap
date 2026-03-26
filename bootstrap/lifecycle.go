@@ -17,18 +17,16 @@ func Close(target any) Hook {
 }
 
 type StartStopHook struct {
-	Target any
-	Start  string
-	Stop   string
+	Start any
+	Stop  any
 }
 
 func (StartStopHook) hook() {}
 
-func StartStop(target any, start string, stop string) Hook {
+func StartStop(start any, stop any) Hook {
 	return StartStopHook{
-		Target: target,
-		Start:  start,
-		Stop:   stop,
+		Start: start,
+		Stop:  stop,
 	}
 }
 

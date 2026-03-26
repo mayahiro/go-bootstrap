@@ -10,6 +10,7 @@ const (
 type options struct {
 	Providers  []any
 	Bindings   []Binding
+	Overrides  []OverrideSpec
 	Entry      any
 	Lifecycles []Hook
 	Includes   []ModuleSpec
@@ -22,6 +23,10 @@ type Spec struct {
 }
 
 type ModuleSpec struct {
+	options
+}
+
+type OverrideSpec struct {
 	options
 }
 
@@ -90,6 +95,21 @@ func Module(options ...Option) ModuleSpec {
 func Include(modules ...ModuleSpec) Option {
 	return optionFunc(func(target *options) {
 		target.Includes = append(target.Includes, modules...)
+	})
+}
+
+func Override(opts ...Option) Option {
+	return optionFunc(func(target *options) {
+		override := OverrideSpec{}
+		for _, option := range opts {
+			if option == nil {
+				continue
+			}
+
+			option.apply(&override.options)
+		}
+
+		target.Overrides = append(target.Overrides, override)
 	})
 }
 

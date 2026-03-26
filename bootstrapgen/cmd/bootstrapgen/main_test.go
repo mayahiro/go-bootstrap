@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -84,5 +86,61 @@ func New(*config.Config) *Server { return &Server{} }
 		if !strings.Contains(string(generated), fragment) {
 			t.Fatalf("generated code did not include %q:\n%s", fragment, string(generated))
 		}
+	}
+}
+
+func TestRunMainHelpUsesStableCommandName(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := runMain([]string{"-h"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output := stderr.String()
+	for _, fragment := range []string{
+		"bootstrapgen devel",
+		"Usage:",
+		"bootstrapgen [flags] [package]",
+		"-version",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("help output did not include %q:\n%s", fragment, output)
+		}
+	}
+
+	if strings.Contains(output, "Usage of ") {
+		t.Fatalf("help output still includes default flag path:\n%s", output)
+	}
+}
+
+func TestRunMainVersionPrintsBuildInfoVersion(t *testing.T) {
+	previous := readBuildInfo
+	readBuildInfo = func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{
+			Main: debug.Module{
+				Version: "v9.9.9",
+			},
+		}, true
+	}
+	defer func() {
+		readBuildInfo = previous
+	}()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := runMain([]string{"-version"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if stdout.String() != "v9.9.9\n" {
+		t.Fatalf("unexpected version output: %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("unexpected stderr output: %q", stderr.String())
 	}
 }

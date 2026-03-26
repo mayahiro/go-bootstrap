@@ -65,14 +65,24 @@ func Build(spec *model.Spec) (*Plan, error) {
 		Spec: spec,
 	}
 
-	bindings := map[string]model.Binding{}
-	for _, binding := range spec.Bindings {
-		key := typeKey(binding.Interface)
-		if existing, exists := bindings[key]; exists {
-			return nil, duplicateBindingError(key, existing, binding)
-		}
+	bindings, err := bindingMap(spec.Bindings)
+	if err != nil {
+		return nil, err
+	}
 
-		bindings[key] = binding
+	overrideBindings, err := bindingMap(spec.OverrideBindings)
+	if err != nil {
+		return nil, err
+	}
+
+	overrideProviders, err := providerMap(spec.Overrides)
+	if err != nil {
+		return nil, err
+	}
+
+	normalProviders, err := providerMap(spec.Providers)
+	if err != nil {
+		return nil, err
 	}
 
 	seen := map[string]bool{}
@@ -88,7 +98,7 @@ func Build(spec *model.Spec) (*Plan, error) {
 			}, nil
 		}
 
-		provider, err := selectProvider(spec, bindings, target, chain)
+		provider, err := selectProvider(spec, overrideBindings, bindings, overrideProviders, normalProviders, target, chain)
 		if err != nil {
 			return Source{}, err
 		}
@@ -190,6 +200,7 @@ func Build(spec *model.Spec) (*Plan, error) {
 			if err != nil {
 				return nil, err
 			}
+
 			stop, err := resolveHook(resolveType, lifecycle.OnStop)
 			if err != nil {
 				return nil, err
@@ -230,35 +241,97 @@ func resolveHook(resolveType func(types.Type, []requirement) (Source, error), fn
 	return call, nil
 }
 
-func selectProvider(spec *model.Spec, bindings map[string]model.Binding, target types.Type, chain []requirement) (*model.Provider, error) {
+func bindingMap(bindings []model.Binding) (map[string]model.Binding, error) {
+	indexed := map[string]model.Binding{}
+
+	for _, binding := range bindings {
+		key := typeKey(binding.Interface)
+		if existing, exists := indexed[key]; exists {
+			return nil, duplicateBindingError(key, existing, binding)
+		}
+
+		indexed[key] = binding
+	}
+
+	return indexed, nil
+}
+
+func providerMap(providers []model.Provider) (map[string][]*model.Provider, error) {
+	indexed := map[string][]*model.Provider{}
+
+	for index := range providers {
+		provider := &providers[index]
+		key := typeKey(provider.Output)
+		indexed[key] = append(indexed[key], provider)
+	}
+
+	for key, group := range indexed {
+		if len(group) <= 1 {
+			continue
+		}
+
+		return nil, providerSelectionError(fmt.Sprintf("multiple providers for %s", key), nil, group)
+	}
+
+	return indexed, nil
+}
+
+func selectProvider(spec *model.Spec, overrideBindings map[string]model.Binding, bindings map[string]model.Binding, overrideProviders map[string][]*model.Provider, normalProviders map[string][]*model.Provider, target types.Type, chain []requirement) (*model.Provider, error) {
 	mapped := target
-	if binding, ok := bindings[typeKey(target)]; ok {
+	if binding, ok := overrideBindings[typeKey(target)]; ok {
+		mapped = binding.Implementation
+	} else if binding, ok := bindings[typeKey(target)]; ok {
 		mapped = binding.Implementation
 	}
 
-	exact := findProviders(spec.Providers, func(provider *model.Provider) bool {
-		return typeKey(provider.Output) == typeKey(mapped)
-	})
-
-	switch len(exact) {
-	case 1:
-		return exact[0], nil
-	case 0:
-	default:
-		return nil, providerSelectionError(fmt.Sprintf("multiple providers for %s", typeKey(mapped)), chain, exact)
+	if provider, err := exactProvider(overrideProviders, mapped, chain); err != nil || provider != nil {
+		return provider, err
 	}
 
-	assignable := findProviders(spec.Providers, func(provider *model.Provider) bool {
+	if provider, err := exactProvider(normalProviders, mapped, chain); err != nil || provider != nil {
+		return provider, err
+	}
+
+	if provider, err := assignableProvider(spec.Overrides, target, chain, "override"); err != nil || provider != nil {
+		return provider, err
+	}
+
+	if provider, err := assignableProvider(spec.Providers, target, chain, ""); err != nil || provider != nil {
+		return provider, err
+	}
+
+	return nil, missingProviderError(target, chain, bindingNote(overrideBindings, bindings, target))
+}
+
+func exactProvider(indexed map[string][]*model.Provider, target types.Type, chain []requirement) (*model.Provider, error) {
+	candidates := indexed[typeKey(target)]
+
+	switch len(candidates) {
+	case 0:
+		return nil, nil
+	case 1:
+		return candidates[0], nil
+	default:
+		return nil, providerSelectionError(fmt.Sprintf("multiple providers for %s", typeKey(target)), chain, candidates)
+	}
+}
+
+func assignableProvider(providers []model.Provider, target types.Type, chain []requirement, layer string) (*model.Provider, error) {
+	candidates := findProviders(providers, func(provider *model.Provider) bool {
 		return types.AssignableTo(provider.Output, target)
 	})
 
-	switch len(assignable) {
-	case 1:
-		return assignable[0], nil
+	switch len(candidates) {
 	case 0:
-		return nil, missingProviderError(target, chain, bindingNote(bindings, target))
+		return nil, nil
+	case 1:
+		return candidates[0], nil
 	default:
-		return nil, providerSelectionError(fmt.Sprintf("multiple assignable providers for %s", typeKey(target)), chain, assignable)
+		message := fmt.Sprintf("multiple assignable providers for %s", typeKey(target))
+		if layer != "" {
+			message = fmt.Sprintf("multiple assignable %s providers for %s", layer, typeKey(target))
+		}
+		return nil, providerSelectionError(message, chain, candidates)
 	}
 }
 
@@ -428,7 +501,11 @@ func missingProviderError(target types.Type, chain []requirement, note string) e
 	}
 }
 
-func bindingNote(bindings map[string]model.Binding, target types.Type) string {
+func bindingNote(overrideBindings map[string]model.Binding, bindings map[string]model.Binding, target types.Type) string {
+	if binding, ok := overrideBindings[typeKey(target)]; ok {
+		return fmt.Sprintf("override binding at %s maps %s to %s", binding.Position.String(), typeKey(binding.Interface), typeKey(binding.Implementation))
+	}
+
 	binding, ok := bindings[typeKey(target)]
 	if !ok {
 		return ""

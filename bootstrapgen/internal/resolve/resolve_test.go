@@ -168,3 +168,88 @@ func TestBuildResolvesEntryParamsFieldsAndHookDependencies(t *testing.T) {
 		t.Fatalf("unexpected hook dependencies: %+v", plan.Lifecycles[0].Start)
 	}
 }
+
+func TestBuildPrefersOverrideProvidersAndBindings(t *testing.T) {
+	pkg := types.NewPackage("example.com/app", "app")
+	serverType := types.NewNamed(types.NewTypeName(0, pkg, "Server", nil), types.NewStruct(nil, nil), nil)
+	runnerType := types.NewNamed(types.NewTypeName(0, pkg, "Runner", nil), types.NewInterfaceType(nil, nil), nil)
+
+	spec := &model.Spec{
+		Entry: model.Entry{
+			Name:     "run",
+			Position: model.Position{File: "bootstrap.go", Line: 20, Column: 1},
+			Inputs: []model.EntryInput{
+				{Type: runnerType},
+			},
+		},
+		Providers: []model.Provider{
+			{
+				Name:     "NewServer",
+				Position: model.Position{File: "bootstrap.go", Line: 10, Column: 1},
+				Output:   types.NewPointer(serverType),
+			},
+		},
+		Overrides: []model.Provider{
+			{
+				Name:     "NewOverrideServer",
+				Position: model.Position{File: "bootstrap.go", Line: 14, Column: 1},
+				Output:   types.NewPointer(serverType),
+			},
+		},
+		Bindings: []model.Binding{
+			{
+				Interface:      runnerType,
+				Implementation: types.NewPointer(serverType),
+				Position:       model.Position{File: "bootstrap.go", Line: 12, Column: 1},
+			},
+		},
+	}
+
+	plan, err := Build(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(plan.Entry) != 1 || plan.Entry[0].Source.Provider == nil {
+		t.Fatalf("unexpected entry plan: %+v", plan.Entry)
+	}
+
+	if plan.Entry[0].Source.Provider.Name != "NewOverrideServer" {
+		t.Fatalf("override provider was not selected: %+v", plan.Entry[0].Source.Provider)
+	}
+}
+
+func TestBuildRejectsDuplicateOverrideBindings(t *testing.T) {
+	pkg := types.NewPackage("example.com/app", "app")
+	runnerType := types.NewNamed(types.NewTypeName(0, pkg, "Runner", nil), types.NewInterfaceType(nil, nil), nil)
+	serverAType := types.NewNamed(types.NewTypeName(0, pkg, "ServerA", nil), types.NewStruct(nil, nil), nil)
+	serverBType := types.NewNamed(types.NewTypeName(0, pkg, "ServerB", nil), types.NewStruct(nil, nil), nil)
+
+	spec := &model.Spec{
+		Entry: model.Entry{
+			Name:     "run",
+			Position: model.Position{File: "bootstrap.go", Line: 20, Column: 1},
+		},
+		OverrideBindings: []model.Binding{
+			{
+				Interface:      runnerType,
+				Implementation: types.NewPointer(serverAType),
+				Position:       model.Position{File: "bootstrap.go", Line: 10, Column: 1},
+			},
+			{
+				Interface:      runnerType,
+				Implementation: types.NewPointer(serverBType),
+				Position:       model.Position{File: "bootstrap.go", Line: 11, Column: 1},
+			},
+		},
+	}
+
+	_, err := Build(spec)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "duplicate binding for example.com/app.Runner") {
+		t.Fatalf("unexpected error: %s", err)
+	}
+}

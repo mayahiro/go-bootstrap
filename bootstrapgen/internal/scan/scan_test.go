@@ -196,6 +196,157 @@ func (server *Server) Run(context.Context) error { return nil }
 	}
 }
 
+func TestPackageParsesTypedStartStopAndMultipleParams(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+)
+
+type Config struct{}
+type Server struct{}
+
+type ServerParams struct {
+	bootstrap.In
+	Server *Server
+}
+
+type ConfigParams struct {
+	bootstrap.In
+	Config *Config
+}
+
+func NewConfig() *Config { return &Config{} }
+func NewServer(*Config) *Server { return &Server{} }
+func (server *Server) Start(context.Context) error { return nil }
+func (server *Server) Stop(context.Context) error { return nil }
+func run(context.Context, ServerParams, ConfigParams) error { return nil }
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Provide(NewConfig, NewServer),
+	bootstrap.Lifecycle(
+		bootstrap.StartStop((*Server).Start, (*Server).Stop),
+	),
+	bootstrap.Entry(run),
+)
+`,
+	})
+
+	pkg, fset := testutil.LoadPackage(t, dir, "./cmd/api")
+	spec, err := Package(pkg, fset)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(spec.Entry.Inputs) != 3 {
+		t.Fatalf("unexpected entry input count: %d", len(spec.Entry.Inputs))
+	}
+
+	if len(spec.Entry.Inputs[1].Fields) != 1 || len(spec.Entry.Inputs[2].Fields) != 1 {
+		t.Fatalf("unexpected entry params: %+v", spec.Entry.Inputs)
+	}
+
+	if len(spec.Lifecycles) != 1 {
+		t.Fatalf("unexpected lifecycle count: %d", len(spec.Lifecycles))
+	}
+
+	if spec.Lifecycles[0].OnStart == nil || spec.Lifecycles[0].OnStart.Name != "Start" {
+		t.Fatalf("unexpected start method: %+v", spec.Lifecycles[0].OnStart)
+	}
+
+	if spec.Lifecycles[0].OnStop == nil || spec.Lifecycles[0].OnStop.Name != "Stop" {
+		t.Fatalf("unexpected stop method: %+v", spec.Lifecycles[0].OnStop)
+	}
+}
+
+func TestPackageRejectsNestedIn(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+)
+
+type Nested struct {
+	bootstrap.In
+}
+
+type Params struct {
+	bootstrap.In
+	Nested Nested
+}
+
+func run(context.Context, Params) error { return nil }
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Entry(run),
+)
+`,
+	})
+
+	pkg, fset := testutil.LoadPackage(t, dir, "./cmd/api")
+	_, err := Package(pkg, fset)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "nested bootstrap.In is not supported") {
+		t.Fatalf("unexpected error: %s", err)
+	}
+}
+
+func TestPackageRejectsInvalidOverrideContents(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+)
+
+type Server struct{}
+
+func NewServer() *Server { return &Server{} }
+func run(context.Context, *Server) error { return nil }
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Override(
+		bootstrap.Provide(NewServer),
+		bootstrap.Lifecycle(
+			bootstrap.StartStop((*Server).Start, (*Server).Stop),
+		),
+	),
+	bootstrap.Entry(run),
+)
+
+func (server *Server) Start(context.Context) error { return nil }
+func (server *Server) Stop(context.Context) error { return nil }
+`,
+	})
+
+	pkg, fset := testutil.LoadPackage(t, dir, "./cmd/api")
+	_, err := Package(pkg, fset)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "Lifecycle is not allowed inside Override") {
+		t.Fatalf("unexpected error: %s", err)
+	}
+}
+
 func TestPackageRejectsModuleCycle(t *testing.T) {
 	dir := testutil.CreateModule(t, map[string]string{
 		"cmd/api/bootstrap.go": `
