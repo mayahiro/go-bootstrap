@@ -1,17 +1,42 @@
 # go-bootstrap
 
-`go-bootstrap` is a monorepo that contains a small DSL for declaring Go composition roots and the code generation tool built around it.
+`go-bootstrap` is a monorepo for a small bootstrap DSL and the code generator built around it.
 
-The root module provides the declarative API, `bootstrapgen` is the generator module, and `examples/simpleapi` is the example module.
+The root module provides the declarative API, `bootstrapgen` provides the generator CLI, and `examples/simpleapi` shows the intended style in a minimal app.
 
-## Layout
+## Why
 
-- `bootstrap/`
-  - Declarative DSL
-- `bootstrapgen/`
-  - Generator module
-- `examples/simpleapi/`
-  - Minimal server example
+`go-bootstrap` is aimed at the space between:
+
+- hand-written startup wiring
+- compile-time graph builders such as Wire
+- runtime application frameworks such as Fx
+
+The goal is to keep startup wiring explicit and inspectable while still giving you higher-level app-bootstrap concepts such as:
+
+- composition roots
+- reusable modules
+- typed lifecycle hooks
+- entrypoint params
+- test and environment overrides
+
+The generated output is ordinary Go. There is no runtime reflection and no general-purpose runtime container.
+
+## Good Fit
+
+`go-bootstrap` works well when you want:
+
+- explicit constructors and generated startup wiring
+- reusable composition for servers and CLIs
+- a smaller API surface than a full runtime framework
+- plain generated Go that can still be inspected and debugged
+
+It is a worse fit when you want:
+
+- fully dynamic runtime composition
+- highly computed or ad-hoc spec assembly
+- multiple unrelated bootstrap specs in the same package
+- an edit loop with no regeneration step
 
 ## Modules
 
@@ -20,6 +45,8 @@ The root module provides the declarative API, `bootstrapgen` is the generator mo
 - `github.com/mayahiro/go-bootstrap/examples/simpleapi`
 
 ## Quick Start
+
+Install the library and the generator:
 
 ```bash
 go get github.com/mayahiro/go-bootstrap@latest
@@ -66,39 +93,7 @@ go tool bootstrapgen ./cmd/api
 go build ./cmd/api
 ```
 
-## Principles
-
-- No runtime reflection
-- Generate plain Go code
-- Make dependencies explicit through constructors and entry points
-- Focus on server and CLI startup wiring
-
-## Positioning
-
-`go-bootstrap` is aimed at the space between hand-written wiring, compile-time DI helpers such as Wire, and runtime application frameworks such as Fx.
-
-- Compared with hand-written DI:
-  - It gives you a small declarative layer for composition roots, lifecycle wiring, and test or environment overrides.
-- Compared with compile-time graph builders:
-  - It stays focused on app bootstrap concerns such as entrypoints, lifecycle hooks, and reusable modules.
-- Compared with runtime DI frameworks:
-  - It keeps the output as plain generated Go, without runtime reflection or a general-purpose container.
-
-In practice, this library works best when you want:
-
-- Explicit constructors and generated startup wiring
-- Reusable composition for servers and CLIs
-- A smaller surface area than a full runtime framework
-- Plain Go output that can still be inspected and debugged
-
-It is a worse fit when you want:
-
-- Fully dynamic runtime composition
-- Arbitrary DSL expressiveness
-- Multiple unrelated bootstrap specs living naturally in the same package
-- A workflow where every edit should be reflected immediately without regeneration
-
-## When To Use What
+## Core Concepts
 
 - `Provide`
   - Register explicit constructors for concrete values.
@@ -110,28 +105,16 @@ It is a worse fit when you want:
   - Assemble the final app spec from reusable modules.
 - `Override`
   - Replace providers or bindings in tests or environment-specific entrypoints.
+- `Entry`
+  - Define the resolved entrypoint for the generated bootstrap function.
+- `In`
+  - Group entry parameters into readable structs instead of a long parameter list.
 - `StartStop`
   - Use for the common typed lifecycle pair on one receiver type.
 - `HookFunc`
   - Use for free functions, one-sided hooks, or hooks that are not naturally a typed start/stop pair.
-- `In`
-  - Use when an entrypoint is easier to read as grouped params instead of a long parameter list.
-
-## Public API
-
-- `bootstrap.Server`
-- `bootstrap.CLI`
-- `bootstrap.Provide`
-- `bootstrap.Bind`
-- `bootstrap.Module`
-- `bootstrap.Include`
-- `bootstrap.Override`
-- `bootstrap.Entry`
-- `bootstrap.In`
-- `bootstrap.Lifecycle`
-- `bootstrap.StartStop`
-- `bootstrap.Close`
-- `bootstrap.HookFunc`
+- `Close`
+  - Use when a value just needs `Close()` or `Close() error` handling.
 
 ## Example
 
@@ -163,7 +146,7 @@ var spec = bootstrap.Server(
 )
 ```
 
-## Override Example
+Override for tests or environment-specific entrypoints:
 
 ```go
 var testModule = bootstrap.Module(
@@ -176,18 +159,16 @@ var testModule = bootstrap.Module(
 )
 ```
 
-Use `StartStop` for the common typed start/stop pair on a lifecycle target. Use `HookFunc` when the hook is not a method pair on the same receiver or when only one side is needed.
-
-The DSL is intended to be read by the generator through AST and type information.
-
-That design choice is deliberate. The DSL is intentionally smaller than a general-purpose DI language, and specs are expected to be written in a generator-friendly style: package-level module or spec declarations, explicit constructors, and predictable composition.
-
 ## Constraints
 
-- The generator currently assumes one bootstrap spec per package.
-- `bootstrap.In` is supported for entry parameter structs, not as a general parameter injection feature across the whole DSL.
+The design is intentionally narrow so the generator can stay predictable.
+
+- The generator assumes one bootstrap spec per package.
+- Specs are expected to be written in a generator-friendly style: package-level module or spec declarations, explicit constructor references, and predictable composition.
+- `bootstrap.In` is supported for entry parameter structs, not as a general injection feature across the whole DSL.
+- Nested `bootstrap.In` is not supported.
 - `Override` is intended for provider and binding replacement, not for replacing the whole app shape.
-- The development loop includes regeneration after DSL changes.
+- DSL changes require regeneration.
 
 ## Supported Patterns
 
@@ -202,7 +183,6 @@ That design choice is deliberate. The DSL is intentionally smaller than a genera
 ## Unsupported or Discouraged Patterns
 
 - Multiple bootstrap specs in one package
-- Nested `bootstrap.In`
 - Dynamic or heavily computed spec assembly
 - Hiding constructors behind patterns that are hard for AST/type-based analysis to follow
 - Using `Override` as a whole-app replacement mechanism
@@ -213,6 +193,17 @@ That design choice is deliberate. The DSL is intentionally smaller than a genera
 - Generated files should be treated as build artifacts and not edited manually.
 - The DSL is intentionally smaller than a general-purpose DI language so that generated code stays predictable.
 
+## Repository Layout
+
+- `bootstrap/`
+  - Declarative DSL
+- `bootstrapgen/`
+  - Generator module
+- `examples/simpleapi/`
+  - Minimal server example
+
 ## Local Development
 
 The modules are connected through the repo root `go.work`.
+
+For generator-specific CLI details and generator input expectations, see [`bootstrapgen/README.md`](bootstrapgen/README.md).
