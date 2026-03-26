@@ -7,13 +7,22 @@ const (
 	CLIKind    AppKind = "cli"
 )
 
-type Spec struct {
-	Kind       AppKind
-	Name       string
+type options struct {
 	Providers  []any
 	Bindings   []Binding
 	Entry      any
 	Lifecycles []Hook
+	Includes   []ModuleSpec
+}
+
+type Spec struct {
+	Kind AppKind
+	Name string
+	options
+}
+
+type ModuleSpec struct {
+	options
 }
 
 type Binding struct {
@@ -22,13 +31,13 @@ type Binding struct {
 }
 
 type Option interface {
-	apply(*Spec)
+	apply(*options)
 }
 
-type optionFunc func(*Spec)
+type optionFunc func(*options)
 
-func (f optionFunc) apply(spec *Spec) {
-	f(spec)
+func (f optionFunc) apply(target *options) {
+	f(target)
 }
 
 func Server(name string, options ...Option) Spec {
@@ -40,14 +49,14 @@ func CLI(name string, options ...Option) Spec {
 }
 
 func Provide(constructors ...any) Option {
-	return optionFunc(func(spec *Spec) {
-		spec.Providers = append(spec.Providers, constructors...)
+	return optionFunc(func(target *options) {
+		target.Providers = append(target.Providers, constructors...)
 	})
 }
 
 func Bind(iface any, implementation any) Option {
-	return optionFunc(func(spec *Spec) {
-		spec.Bindings = append(spec.Bindings, Binding{
+	return optionFunc(func(target *options) {
+		target.Bindings = append(target.Bindings, Binding{
 			Interface:      iface,
 			Implementation: implementation,
 		})
@@ -55,14 +64,32 @@ func Bind(iface any, implementation any) Option {
 }
 
 func Entry(entry any) Option {
-	return optionFunc(func(spec *Spec) {
-		spec.Entry = entry
+	return optionFunc(func(target *options) {
+		target.Entry = entry
 	})
 }
 
 func Lifecycle(hooks ...Hook) Option {
-	return optionFunc(func(spec *Spec) {
-		spec.Lifecycles = append(spec.Lifecycles, hooks...)
+	return optionFunc(func(target *options) {
+		target.Lifecycles = append(target.Lifecycles, hooks...)
+	})
+}
+
+func Module(options ...Option) ModuleSpec {
+	module := ModuleSpec{}
+	for _, option := range options {
+		if option == nil {
+			continue
+		}
+
+		option.apply(&module.options)
+	}
+	return module
+}
+
+func Include(modules ...ModuleSpec) Option {
+	return optionFunc(func(target *options) {
+		target.Includes = append(target.Includes, modules...)
 	})
 }
 
@@ -77,7 +104,7 @@ func newSpec(kind AppKind, name string, options ...Option) Spec {
 			continue
 		}
 
-		option.apply(&spec)
+		option.apply(&spec.options)
 	}
 
 	return spec

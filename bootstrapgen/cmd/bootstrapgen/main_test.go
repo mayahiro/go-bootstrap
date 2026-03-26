@@ -62,11 +62,11 @@ func New(*config.Config) *Server { return &Server{} }
 	}()
 
 	targetDir := filepath.Join(dir, "cmd", "api")
-	if err := os.Chdir(targetDir); err != nil {
+	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := run(".", "bootstrap_gen.go"); err != nil {
+	if err := run("./cmd/api", "bootstrap_gen.go"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -77,9 +77,9 @@ func New(*config.Config) *Server { return &Server{} }
 
 	for _, fragment := range []string{
 		"func runBootstrap(ctx context.Context) error {",
-		"config, err := config.Load()",
-		"server := server.New(config)",
-		"return run(ctx, server)",
+		"config2, err := config.Load()",
+		"server2 := server.New(config2)",
+		"return run(ctx, server2)",
 	} {
 		if !strings.Contains(string(generated), fragment) {
 			t.Fatalf("generated code did not include %q:\n%s", fragment, string(generated))

@@ -4,6 +4,8 @@ type Hook interface {
 	hook()
 }
 
+type In struct{}
+
 type CloseHook struct {
 	Target any
 }
@@ -27,5 +29,19 @@ func StartStop(target any, start string, stop string) Hook {
 		Target: target,
 		Start:  start,
 		Stop:   stop,
+	}
+}
+
+type FuncHook struct {
+	Start any
+	Stop  any
+}
+
+func (FuncHook) hook() {}
+
+func HookFunc(start any, stop any) Hook {
+	return FuncHook{
+		Start: start,
+		Stop:  stop,
 	}
 }

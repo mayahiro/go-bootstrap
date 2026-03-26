@@ -30,7 +30,12 @@ func main() {
 }
 
 func run(pattern string, output string) error {
-	pkg, err := load.Package(pattern)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	pkg, err := load.Package(cwd, pattern)
 	if err != nil {
 		return err
 	}

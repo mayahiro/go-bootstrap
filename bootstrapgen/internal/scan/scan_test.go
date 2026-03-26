@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mayahiro/go-bootstrap/bootstrapgen/internal/model"
 	"github.com/mayahiro/go-bootstrap/bootstrapgen/internal/testutil"
 )
 
@@ -79,5 +80,158 @@ var spec = bootstrap.Server("api")
 
 	if !strings.Contains(message, "Entry is required") {
 		t.Fatalf("error did not include message: %s", message)
+	}
+}
+
+func TestPackageParsesIncludedModuleParamsAndHookFunc(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+	"example.com/test/internal/di"
+	"example.com/test/internal/server"
+)
+
+type Params struct {
+	bootstrap.In
+	Runner server.Runner
+}
+
+func startAudit(context.Context, *server.Server) error { return nil }
+func stopAudit(*server.Server) {}
+func run(ctx context.Context, params Params) error { return params.Runner.Run(ctx) }
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Include(di.Module),
+	bootstrap.Lifecycle(
+		bootstrap.HookFunc(startAudit, stopAudit),
+	),
+	bootstrap.Entry(run),
+)
+`,
+		"internal/di/module.go": `
+package di
+
+import (
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+	"example.com/test/internal/config"
+	"example.com/test/internal/server"
+)
+
+var Module = bootstrap.Module(
+	bootstrap.Provide(
+		config.Load,
+		server.New,
+	),
+	bootstrap.Bind(
+		(*server.Runner)(nil),
+		(*server.Server)(nil),
+	),
+)
+`,
+		"internal/config/config.go": `
+package config
+
+type Config struct{}
+
+func Load() *Config { return &Config{} }
+`,
+		"internal/server/server.go": `
+package server
+
+import (
+	"context"
+
+	"example.com/test/internal/config"
+)
+
+type Runner interface {
+	Run(context.Context) error
+}
+
+type Server struct{}
+
+func New(*config.Config) *Server { return &Server{} }
+func (server *Server) Run(context.Context) error { return nil }
+`,
+	})
+
+	pkg, fset := testutil.LoadPackage(t, dir, "./cmd/api")
+	spec, err := Package(pkg, fset)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(spec.Providers) != 2 {
+		t.Fatalf("unexpected provider count: %d", len(spec.Providers))
+	}
+
+	if len(spec.Bindings) != 1 {
+		t.Fatalf("unexpected binding count: %d", len(spec.Bindings))
+	}
+
+	if len(spec.Entry.Inputs) != 2 {
+		t.Fatalf("unexpected entry input count: %d", len(spec.Entry.Inputs))
+	}
+
+	if len(spec.Entry.Inputs[1].Fields) != 1 || spec.Entry.Inputs[1].Fields[0].Name != "Runner" {
+		t.Fatalf("unexpected entry params fields: %+v", spec.Entry.Inputs[1].Fields)
+	}
+
+	if len(spec.Lifecycles) != 1 {
+		t.Fatalf("unexpected lifecycle count: %d", len(spec.Lifecycles))
+	}
+
+	if spec.Lifecycles[0].Kind != model.HookFuncLifecycle {
+		t.Fatalf("unexpected lifecycle kind: %s", spec.Lifecycles[0].Kind)
+	}
+
+	if spec.Lifecycles[0].OnStart == nil || spec.Lifecycles[0].OnStart.Name != "startAudit" {
+		t.Fatalf("unexpected start hook: %+v", spec.Lifecycles[0].OnStart)
+	}
+}
+
+func TestPackageRejectsModuleCycle(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+)
+
+func run(context.Context) error { return nil }
+
+var moduleA = bootstrap.Module(
+	bootstrap.Include(moduleB),
+)
+
+var moduleB = bootstrap.Module(
+	bootstrap.Include(moduleA),
+)
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Include(moduleA),
+	bootstrap.Entry(run),
+)
+`,
+	})
+
+	pkg, fset := testutil.LoadPackage(t, dir, "./cmd/api")
+	_, err := Package(pkg, fset)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "module include cycle detected") {
+		t.Fatalf("unexpected error: %s", err)
 	}
 }

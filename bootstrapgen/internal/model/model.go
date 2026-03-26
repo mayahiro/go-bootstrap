@@ -35,6 +35,12 @@ type Spec struct {
 	Lifecycles  []Lifecycle
 }
 
+type Field struct {
+	Name     string
+	Type     types.Type
+	Position Position
+}
+
 type Provider struct {
 	Name        string
 	Position    Position
@@ -45,7 +51,22 @@ type Provider struct {
 	HasError    bool
 }
 
+type EntryInput struct {
+	Type     types.Type
+	Position Position
+	Fields   []Field
+}
+
 type Entry struct {
+	Name         string
+	Position     Position
+	PackageName  string
+	PackagePath  string
+	Inputs       []EntryInput
+	ReturnsError bool
+}
+
+type Function struct {
 	Name         string
 	Position     Position
 	PackageName  string
@@ -65,6 +86,7 @@ type LifecycleKind string
 const (
 	CloseLifecycle     LifecycleKind = "close"
 	StartStopLifecycle LifecycleKind = "start_stop"
+	HookFuncLifecycle  LifecycleKind = "hook_func"
 )
 
 type Lifecycle struct {
@@ -72,5 +94,7 @@ type Lifecycle struct {
 	Target   types.Type
 	Start    string
 	Stop     string
+	OnStart  *Function
+	OnStop   *Function
 	Position Position
 }

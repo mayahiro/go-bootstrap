@@ -26,15 +26,33 @@ type Step struct {
 	Inputs   []Source
 }
 
+type EntryField struct {
+	Name   string
+	Source Source
+}
+
+type EntryArg struct {
+	Type   types.Type
+	Source Source
+	Fields []EntryField
+}
+
+type HookCall struct {
+	Func   *model.Function
+	Inputs []Source
+}
+
 type Lifecycle struct {
 	Spec   model.Lifecycle
 	Source Source
+	Start  *HookCall
+	Stop   *HookCall
 }
 
 type Plan struct {
 	Spec       *model.Spec
 	Steps      []Step
-	Entry      []Source
+	Entry      []EntryArg
 	Lifecycles []Lifecycle
 }
 
@@ -122,24 +140,66 @@ func Build(spec *model.Spec) (*Plan, error) {
 	}
 
 	for _, input := range spec.Entry.Inputs {
-		source, err := resolveType(input, []requirement{entryRequirement(spec.Entry, input)})
-		if err != nil {
-			return nil, err
+		if len(input.Fields) == 0 {
+			source, err := resolveType(input.Type, []requirement{entryRequirement(spec.Entry, input.Type)})
+			if err != nil {
+				return nil, err
+			}
+
+			plan.Entry = append(plan.Entry, EntryArg{
+				Type:   input.Type,
+				Source: source,
+			})
+			continue
 		}
 
-		plan.Entry = append(plan.Entry, source)
+		arg := EntryArg{
+			Type: input.Type,
+		}
+
+		for _, field := range input.Fields {
+			source, err := resolveType(field.Type, []requirement{entryFieldRequirement(spec.Entry, field)})
+			if err != nil {
+				return nil, err
+			}
+
+			arg.Fields = append(arg.Fields, EntryField{
+				Name:   field.Name,
+				Source: source,
+			})
+		}
+
+		plan.Entry = append(plan.Entry, arg)
 	}
 
 	for _, lifecycle := range spec.Lifecycles {
-		source, err := resolveType(lifecycle.Target, []requirement{lifecycleRequirement(lifecycle)})
-		if err != nil {
-			return nil, err
+		resolved := Lifecycle{
+			Spec: lifecycle,
 		}
 
-		plan.Lifecycles = append(plan.Lifecycles, Lifecycle{
-			Spec:   lifecycle,
-			Source: source,
-		})
+		switch lifecycle.Kind {
+		case model.CloseLifecycle, model.StartStopLifecycle:
+			source, err := resolveType(lifecycle.Target, []requirement{lifecycleRequirement(lifecycle)})
+			if err != nil {
+				return nil, err
+			}
+
+			resolved.Source = source
+		case model.HookFuncLifecycle:
+			start, err := resolveHook(resolveType, lifecycle.OnStart)
+			if err != nil {
+				return nil, err
+			}
+			stop, err := resolveHook(resolveType, lifecycle.OnStop)
+			if err != nil {
+				return nil, err
+			}
+
+			resolved.Start = start
+			resolved.Stop = stop
+		}
+
+		plan.Lifecycles = append(plan.Lifecycles, resolved)
 	}
 
 	for index, step := range plan.Steps {
@@ -147,6 +207,27 @@ func Build(spec *model.Spec) (*Plan, error) {
 	}
 
 	return plan, nil
+}
+
+func resolveHook(resolveType func(types.Type, []requirement) (Source, error), fn *model.Function) (*HookCall, error) {
+	if fn == nil {
+		return nil, nil
+	}
+
+	call := &HookCall{
+		Func: fn,
+	}
+
+	for _, input := range fn.Inputs {
+		source, err := resolveType(input, []requirement{hookRequirement(fn, input)})
+		if err != nil {
+			return nil, err
+		}
+
+		call.Inputs = append(call.Inputs, source)
+	}
+
+	return call, nil
 }
 
 func selectProvider(spec *model.Spec, bindings map[string]model.Binding, target types.Type, chain []requirement) (*model.Provider, error) {
@@ -267,6 +348,15 @@ func entryRequirement(entry model.Entry, target types.Type) requirement {
 	}
 }
 
+func entryFieldRequirement(entry model.Entry, field model.Field) requirement {
+	return requirement{
+		ownerKind: "entry field",
+		ownerName: entry.Name + "." + field.Name,
+		position:  field.Position,
+		target:    field.Type,
+	}
+}
+
 func providerRequirement(provider *model.Provider, target types.Type) requirement {
 	return requirement{
 		ownerKind: "provider",
@@ -285,12 +375,23 @@ func lifecycleRequirement(lifecycle model.Lifecycle) requirement {
 	}
 }
 
+func hookRequirement(fn *model.Function, target types.Type) requirement {
+	return requirement{
+		ownerKind: "lifecycle hook",
+		ownerName: fn.Name,
+		position:  fn.Position,
+		target:    target,
+	}
+}
+
 func lifecycleName(lifecycle model.Lifecycle) string {
 	switch lifecycle.Kind {
 	case model.StartStopLifecycle:
 		return "StartStop"
 	case model.CloseLifecycle:
 		return "Close"
+	case model.HookFuncLifecycle:
+		return "HookFunc"
 	default:
 		return string(lifecycle.Kind)
 	}

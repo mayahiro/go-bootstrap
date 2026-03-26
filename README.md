@@ -32,16 +32,26 @@ The root module provides the declarative API, `bootstrapgen` is the generator mo
 - `bootstrap.CLI`
 - `bootstrap.Provide`
 - `bootstrap.Bind`
+- `bootstrap.Module`
+- `bootstrap.Include`
 - `bootstrap.Entry`
+- `bootstrap.In`
 - `bootstrap.Lifecycle`
 - `bootstrap.StartStop`
 - `bootstrap.Close`
+- `bootstrap.HookFunc`
 
 ## Example
 
 ```go
 var spec = bootstrap.Server(
 	"api",
+type runParams struct {
+	bootstrap.In
+	Runner httpserver.Runner
+}
+
+var serverModule = bootstrap.Module(
 	bootstrap.Provide(
 		config.Load,
 		logger.New,
@@ -54,6 +64,11 @@ var spec = bootstrap.Server(
 	bootstrap.Lifecycle(
 		bootstrap.StartStop((*httpserver.Server)(nil), "Start", "Stop"),
 	),
+)
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Include(serverModule),
 	bootstrap.Entry(run),
 )
 ```

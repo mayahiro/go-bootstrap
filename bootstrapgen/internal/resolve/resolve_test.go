@@ -17,7 +17,9 @@ func TestBuildMissingProviderErrorIncludesDependencyPath(t *testing.T) {
 		Entry: model.Entry{
 			Name:     "run",
 			Position: model.Position{File: "bootstrap.go", Line: 20, Column: 1},
-			Inputs:   []types.Type{types.NewPointer(serverType)},
+			Inputs: []model.EntryInput{
+				{Type: types.NewPointer(serverType)},
+			},
 		},
 		Providers: []model.Provider{
 			{
@@ -55,7 +57,9 @@ func TestBuildMultipleProvidersErrorIncludesCandidates(t *testing.T) {
 		Entry: model.Entry{
 			Name:     "run",
 			Position: model.Position{File: "bootstrap.go", Line: 30, Column: 1},
-			Inputs:   []types.Type{types.NewPointer(serverType)},
+			Inputs: []model.EntryInput{
+				{Type: types.NewPointer(serverType)},
+			},
 		},
 		Providers: []model.Provider{
 			{
@@ -86,5 +90,81 @@ func TestBuildMultipleProvidersErrorIncludesCandidates(t *testing.T) {
 		if !strings.Contains(message, fragment) {
 			t.Fatalf("missing fragment %q in error: %s", fragment, message)
 		}
+	}
+}
+
+func TestBuildResolvesEntryParamsFieldsAndHookDependencies(t *testing.T) {
+	pkg := types.NewPackage("example.com/app", "app")
+	contextPkg := types.NewPackage("context", "context")
+	configType := types.NewNamed(types.NewTypeName(0, pkg, "Config", nil), types.NewStruct(nil, nil), nil)
+	serverType := types.NewNamed(types.NewTypeName(0, pkg, "Server", nil), types.NewStruct(nil, nil), nil)
+	runnerType := types.NewNamed(types.NewTypeName(0, pkg, "Runner", nil), types.NewInterfaceType(nil, nil), nil)
+	contextType := types.NewNamed(types.NewTypeName(0, contextPkg, "Context", nil), types.NewInterfaceType(nil, nil), nil)
+
+	spec := &model.Spec{
+		Entry: model.Entry{
+			Name:     "run",
+			Position: model.Position{File: "bootstrap.go", Line: 30, Column: 1},
+			Inputs: []model.EntryInput{
+				{Type: contextType},
+				{
+					Type: types.NewStruct(nil, nil),
+					Fields: []model.Field{
+						{Name: "Runner", Type: runnerType, Position: model.Position{File: "bootstrap.go", Line: 31, Column: 2}},
+					},
+				},
+			},
+		},
+		Bindings: []model.Binding{
+			{
+				Interface:      runnerType,
+				Implementation: types.NewPointer(serverType),
+				Position:       model.Position{File: "bootstrap.go", Line: 15, Column: 1},
+			},
+		},
+		Providers: []model.Provider{
+			{
+				Name:     "NewConfig",
+				Position: model.Position{File: "bootstrap.go", Line: 10, Column: 1},
+				Output:   types.NewPointer(configType),
+			},
+			{
+				Name:     "NewServer",
+				Position: model.Position{File: "bootstrap.go", Line: 20, Column: 1},
+				Inputs:   []types.Type{types.NewPointer(configType)},
+				Output:   types.NewPointer(serverType),
+			},
+		},
+		Lifecycles: []model.Lifecycle{
+			{
+				Kind: model.HookFuncLifecycle,
+				OnStart: &model.Function{
+					Name:     "startHook",
+					Position: model.Position{File: "bootstrap.go", Line: 40, Column: 1},
+					Inputs:   []types.Type{types.NewPointer(serverType)},
+				},
+			},
+		},
+	}
+
+	plan, err := Build(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(plan.Entry) != 2 || len(plan.Entry[1].Fields) != 1 {
+		t.Fatalf("unexpected entry plan: %+v", plan.Entry)
+	}
+
+	if plan.Entry[1].Fields[0].Source.Provider == nil || plan.Entry[1].Fields[0].Source.Provider.Name != "NewServer" {
+		t.Fatalf("unexpected params field source: %+v", plan.Entry[1].Fields[0].Source)
+	}
+
+	if len(plan.Lifecycles) != 1 || plan.Lifecycles[0].Start == nil {
+		t.Fatalf("unexpected lifecycle plan: %+v", plan.Lifecycles)
+	}
+
+	if len(plan.Lifecycles[0].Start.Inputs) != 1 || plan.Lifecycles[0].Start.Inputs[0].Provider.Name != "NewServer" {
+		t.Fatalf("unexpected hook dependencies: %+v", plan.Lifecycles[0].Start)
 	}
 }

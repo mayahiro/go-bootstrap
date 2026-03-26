@@ -11,8 +11,12 @@ import (
 	examplelogger "github.com/mayahiro/go-bootstrap/examples/simpleapi/internal/logger"
 )
 
-var spec = bootstrap.Server(
-	"api",
+type runParams struct {
+	bootstrap.In
+	Runner httpserver.Runner
+}
+
+var serverModule = bootstrap.Module(
 	bootstrap.Provide(
 		config.Load,
 		examplelogger.New,
@@ -25,9 +29,14 @@ var spec = bootstrap.Server(
 	bootstrap.Lifecycle(
 		bootstrap.StartStop((*httpserver.Server)(nil), "Start", "Stop"),
 	),
+)
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Include(serverModule),
 	bootstrap.Entry(run),
 )
 
-func run(ctx context.Context, runner httpserver.Runner) error {
-	return runner.Run(ctx)
+func run(ctx context.Context, params runParams) error {
+	return params.Runner.Run(ctx)
 }

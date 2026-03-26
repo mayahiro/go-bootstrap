@@ -6,8 +6,10 @@
 
 - Parse constructors from `Provide`
 - Resolve interfaces to concrete types through `Bind`
+- Flatten reusable `Module` declarations through `Include`
 - Resolve dependencies starting from `Entry`
-- Render lifecycle handling for `StartStop` and `Close`
+- Expand entry parameter structs that embed `bootstrap.In`
+- Render lifecycle handling for `StartStop`, `Close`, and `HookFunc`
 - Report diagnostic errors with source locations and dependency paths
 - Generate `bootstrap_gen.go`
 
@@ -15,7 +17,8 @@
 
 - Providers must be `func(...) T` or `func(...) (T, error)`
 - Entries must be `func(...)` or `func(...) error`
-- Lifecycle methods must be `func()` or `func(context.Context)` and return either nothing or `error`
+- `bootstrap.In` is currently supported for entry parameter structs only
+- `HookFunc` callbacks must return either nothing or `error`
 - The current implementation assumes one bootstrap spec per package
 
 ## Usage

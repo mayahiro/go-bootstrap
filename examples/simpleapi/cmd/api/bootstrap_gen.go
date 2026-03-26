@@ -8,15 +8,18 @@ import (
 )
 
 func runBootstrap(ctx context.Context) error {
-	config, err := config.Load()
+	config2, err := config.Load()
 	if err != nil {
 		return err
 	}
-	logger := logger.New(config)
-	server := httpserver.New(config, logger)
-	if err := server.Start(ctx); err != nil {
+	slogLogger := logger.New(config2)
+	httpserverServer := httpserver.New(config2, slogLogger)
+	runParams := runParams{
+		Runner: httpserverServer,
+	}
+	if err := httpserverServer.Start(ctx); err != nil {
 		return err
 	}
-	defer func() { _ = server.Stop(ctx) }()
-	return run(ctx, server)
+	defer func() { _ = httpserverServer.Stop(ctx) }()
+	return run(ctx, runParams)
 }
