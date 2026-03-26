@@ -93,6 +93,8 @@ go tool bootstrapgen ./cmd/api
 go build ./cmd/api
 ```
 
+For generator-specific CLI details, input expectations, and generator-side constraints, see [`bootstrapgen/README.md`](bootstrapgen/README.md).
+
 ## Core Concepts
 
 - `Provide`
@@ -205,5 +207,3 @@ The design is intentionally narrow so the generator can stay predictable.
 ## Local Development
 
 The modules are connected through the repo root `go.work`.
-
-For generator-specific CLI details and generator input expectations, see [`bootstrapgen/README.md`](bootstrapgen/README.md).
