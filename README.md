@@ -4,6 +4,8 @@
 
 The root module provides the declarative API, `bootstrapgen` provides the generator CLI, and `examples/simpleapi` shows the intended style in a minimal app.
 
+See [`examples/README.md`](examples/README.md) for the full example list.
+
 ## Why
 
 `go-bootstrap` is aimed at the space between:
@@ -43,6 +45,9 @@ It is a worse fit when you want:
 - `github.com/mayahiro/go-bootstrap`
 - `github.com/mayahiro/go-bootstrap/bootstrapgen`
 - `github.com/mayahiro/go-bootstrap/examples/simpleapi`
+- `github.com/mayahiro/go-bootstrap/examples/overrideapp`
+- `github.com/mayahiro/go-bootstrap/examples/simplecli`
+- `github.com/mayahiro/go-bootstrap/examples/modularapp`
 
 ## Quick Start
 
@@ -201,8 +206,8 @@ The design is intentionally narrow so the generator can stay predictable.
   - Declarative DSL
 - `bootstrapgen/`
   - Generator module
-- `examples/simpleapi/`
-  - Minimal server example
+- `examples/`
+  - Runnable examples for common composition patterns
 
 ## Local Development
 

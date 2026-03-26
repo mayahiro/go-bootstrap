@@ -3,5 +3,8 @@ go 1.26.1
 use (
 	.
 	./bootstrapgen
+	./examples/modularapp
+	./examples/overrideapp
 	./examples/simpleapi
+	./examples/simplecli
 )
