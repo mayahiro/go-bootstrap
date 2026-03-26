@@ -1,6 +1,6 @@
 # overrideapp
 
-`overrideapp` demonstrates environment-specific composition with `bootstrap.Override(...)`.
+`overrideapp` is the minimal test override example for `bootstrap.Override(...)`.
 
 It uses a shared base module and two entrypoints:
 
@@ -39,3 +39,9 @@ go generate ./examples/overrideapp/cmd/testapp
 go build -o /tmp/overrideapp-prod ./examples/overrideapp/cmd/prod
 go build -o /tmp/overrideapp-test ./examples/overrideapp/cmd/testapp
 ```
+
+This example is intended to answer:
+
+- how to replace a production provider with a fake
+- how to replace a binding together with that provider
+- how to keep a shared base module and vary only the final entrypoint composition

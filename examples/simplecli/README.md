@@ -1,8 +1,8 @@
 # simplecli
 
-`simplecli` is a minimal CLI example built with `go-bootstrap`.
+`simplecli` is a one-shot CLI example built with `go-bootstrap`.
 
-It demonstrates `bootstrap.CLI(...)`, grouped entry params through `bootstrap.In`, and a one-sided `bootstrap.HookFunc(...)`.
+It demonstrates `bootstrap.CLI(...)`, grouped entry params through `bootstrap.In`, and setup/teardown through `bootstrap.Close(...)`.
 
 ## Layout
 
@@ -11,7 +11,7 @@ It demonstrates `bootstrap.CLI(...)`, grouped entry params through `bootstrap.In
 - `cmd/hello/bootstrap_gen.go`
   - Generated startup wiring
 - `internal/audit`
-  - Audit writer and stop hook
+  - Closable audit writer
 - `internal/command`
   - Command implementation
 - `internal/config`

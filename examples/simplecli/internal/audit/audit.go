@@ -1,7 +1,6 @@
 package audit
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/mayahiro/go-bootstrap/examples/simplecli/internal/config"
@@ -17,7 +16,7 @@ func NewWriter(config *config.Config) *Writer {
 	}
 }
 
-func Flush(context.Context, *Writer) error {
-	fmt.Println("audit flushed")
+func (writer *Writer) Close() error {
+	fmt.Println("audit closed:", writer.name)
 	return nil
 }

@@ -23,7 +23,7 @@ var cliModule = bootstrap.Module(
 		command.New,
 	),
 	bootstrap.Lifecycle(
-		bootstrap.HookFunc(nil, audit.Flush),
+		bootstrap.Close((*audit.Writer)(nil)),
 	),
 )
 

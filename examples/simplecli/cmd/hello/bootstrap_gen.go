@@ -17,6 +17,6 @@ func runBootstrap(ctx context.Context) error {
 	runParams := runParams{
 		Command: command2,
 	}
-	defer func() { _ = audit.Flush(ctx, auditWriter) }()
+	defer func() { _ = auditWriter.Close() }()
 	return run(ctx, runParams)
 }
