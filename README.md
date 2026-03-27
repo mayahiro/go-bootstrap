@@ -170,7 +170,7 @@ var testModule = bootstrap.Module(
 
 ## Constraints
 
-The design is intentionally narrow so the generator can stay predictable.
+The design is intentionally narrow so the generator can stay predictable, source-located diagnostics can stay clear, and the generated code can remain plain Go.
 
 - The generator assumes one bootstrap spec per package.
 - Specs are expected to be written in a generator-friendly style: package-level module or spec declarations, explicit constructor references, and predictable composition.
@@ -178,6 +178,26 @@ The design is intentionally narrow so the generator can stay predictable.
 - Nested `bootstrap.In` is not supported.
 - `Override` is intended for provider and binding replacement, not for replacing the whole app shape.
 - DSL changes require regeneration.
+
+## How To Structure Packages
+
+- Keep `bootstrap.go`, `main.go`, and the generated `bootstrap_gen.go` in the same entrypoint package.
+- Put shared wiring in reusable `bootstrap.Module(...)` values in other packages.
+- Use the entrypoint package as the composition root, and assemble shared modules there with `Include`.
+- Run and build packages such as `./cmd/api`, not individual files such as `./cmd/api/main.go`.
+
+## Choosing Lifecycle APIs
+
+- Use `StartStop` when one receiver type has the main typed lifecycle pair for the app.
+- Use `HookFunc` for free functions, one-sided hooks, or coordination logic that does not naturally belong on the lifecycle target.
+- Use `Close` for simple teardown values that only need `Close()` or `Close() error`.
+
+## What Override Is Not
+
+- `Override` is not a second top-level app spec.
+- `Override` is not meant to replace `Entry` or `Lifecycle`.
+- `Override` is not intended to express highly dynamic runtime composition.
+- `Override` is best treated as a narrow way to replace providers or bindings in tests and environment-specific entrypoints.
 
 ## Supported Patterns
 
@@ -195,6 +215,19 @@ The design is intentionally narrow so the generator can stay predictable.
 - Dynamic or heavily computed spec assembly
 - Hiding constructors behind patterns that are hard for AST/type-based analysis to follow
 - Using `Override` as a whole-app replacement mechanism
+
+## Troubleshooting
+
+- `bootstrap spec not found`
+  - Check that the selected package contains a package-level `bootstrap.Server(...)` or `bootstrap.CLI(...)` declaration.
+- `multiple bootstrap specs found`
+  - Split the specs into separate packages or keep only one spec in the selected package.
+- `provider not found`
+  - Add a matching `Provide` or `Bind`, or move the required module into the final spec with `Include`.
+- `StartStop` validation errors
+  - Pass method expressions such as `(*Server).Start` and `(*Server).Stop` on the same receiver type.
+- `go run ./cmd/api/main.go` fails
+  - Run or build the package path such as `./cmd/api` so `bootstrap_gen.go` is compiled with the rest of the package.
 
 ## Generated Code
 
