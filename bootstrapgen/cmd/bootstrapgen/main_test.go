@@ -144,3 +144,162 @@ func TestRunMainVersionPrintsBuildInfoVersion(t *testing.T) {
 		t.Fatalf("unexpected stderr output: %q", stderr.String())
 	}
 }
+
+func TestRunGeneratesBootstrapFileFromPackageDirectory(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+	"example.com/test/internal/config"
+	"example.com/test/internal/server"
+)
+
+func run(context.Context, *server.Server) error { return nil }
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Provide(
+		config.Load,
+		server.New,
+	),
+	bootstrap.Entry(run),
+)
+`,
+		"internal/config/config.go": `
+package config
+
+type Config struct{}
+
+func Load() *Config { return &Config{} }
+`,
+		"internal/server/server.go": `
+package server
+
+import "example.com/test/internal/config"
+
+type Server struct{}
+
+func New(*config.Config) *Server { return &Server{} }
+`,
+	})
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if chdirErr := os.Chdir(cwd); chdirErr != nil {
+			t.Fatal(chdirErr)
+		}
+	}()
+
+	targetDir := filepath.Join(dir, "cmd", "api")
+	if err := os.Chdir(targetDir); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run(".", "bootstrap_gen.go"); err != nil {
+		t.Fatal(err)
+	}
+
+	generated, err := os.ReadFile(filepath.Join(targetDir, "bootstrap_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, fragment := range []string{
+		"config2 := config.Load()",
+		"server2 := server.New(config2)",
+		"return run(ctx, server2)",
+	} {
+		if !strings.Contains(string(generated), fragment) {
+			t.Fatalf("generated code did not include %q:\n%s", fragment, string(generated))
+		}
+	}
+}
+
+func TestRunGeneratesCollisionSafeNames(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+	"example.com/test/internal/service"
+	"example.com/test/internal/youtube"
+)
+
+type Params struct {
+	bootstrap.In
+	Service *youtube.Service
+}
+
+func run(context.Context, *service.Service, Params) error { return nil }
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Provide(
+		service.New,
+		youtube.New,
+	),
+	bootstrap.Entry(run),
+)
+`,
+		"internal/service/service.go": `
+package service
+
+type Service struct{}
+
+func New() *Service { return &Service{} }
+`,
+		"internal/youtube/service.go": `
+package youtube
+
+type Service struct{}
+
+func New() *Service { return &Service{} }
+`,
+	})
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if chdirErr := os.Chdir(cwd); chdirErr != nil {
+			t.Fatal(chdirErr)
+		}
+	}()
+
+	targetDir := filepath.Join(dir, "cmd", "api")
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run("./cmd/api", "bootstrap_gen.go"); err != nil {
+		t.Fatal(err)
+	}
+
+	generated, err := os.ReadFile(filepath.Join(targetDir, "bootstrap_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, fragment := range []string{
+		"service2 := service.New()",
+		"youtubeService := youtube.New()",
+		"params := Params{",
+		"Service: youtubeService,",
+		"return run(ctx, service2, params)",
+	} {
+		if !strings.Contains(string(generated), fragment) {
+			t.Fatalf("generated code did not include %q:\n%s", fragment, string(generated))
+		}
+	}
+}

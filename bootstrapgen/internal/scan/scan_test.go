@@ -386,3 +386,212 @@ var spec = bootstrap.Server(
 		t.Fatalf("unexpected error: %s", err)
 	}
 }
+
+func TestPackageRejectsMultipleBootstrapSpecs(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+)
+
+func run(context.Context) error { return nil }
+
+var apiSpec = bootstrap.Server(
+	"api",
+	bootstrap.Entry(run),
+)
+
+var workerSpec = bootstrap.CLI(
+	"worker",
+	bootstrap.Entry(run),
+)
+`,
+	})
+
+	pkg, fset := testutil.LoadPackage(t, dir, "./cmd/api")
+	_, err := Package(pkg, fset)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	message := err.Error()
+	if !strings.Contains(message, "multiple bootstrap specs found in example.com/test/cmd/api") {
+		t.Fatalf("unexpected error: %s", message)
+	}
+
+	if !strings.Contains(message, "bootstrap.go:") {
+		t.Fatalf("error did not include source location: %s", message)
+	}
+}
+
+func TestPackageRejectsStartStopReceiverMismatch(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+)
+
+type Server struct{}
+type Worker struct{}
+
+func NewServer() *Server { return &Server{} }
+func (server *Server) Start(context.Context) error { return nil }
+func (worker *Worker) Stop(context.Context) error { return nil }
+func run(context.Context, *Server) error { return nil }
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Provide(NewServer),
+	bootstrap.Lifecycle(
+		bootstrap.StartStop((*Server).Start, (*Worker).Stop),
+	),
+	bootstrap.Entry(run),
+)
+`,
+	})
+
+	pkg, fset := testutil.LoadPackage(t, dir, "./cmd/api")
+	_, err := Package(pkg, fset)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "StartStop methods must share the same receiver type") {
+		t.Fatalf("unexpected error: %s", err)
+	}
+}
+
+func TestPackageRejectsStartStopNonMethodExpression(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+)
+
+type Server struct{}
+
+func NewServer() *Server { return &Server{} }
+func start(*Server, context.Context) error { return nil }
+func (server *Server) Stop(context.Context) error { return nil }
+func run(context.Context, *Server) error { return nil }
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Provide(NewServer),
+	bootstrap.Lifecycle(
+		bootstrap.StartStop(start, (*Server).Stop),
+	),
+	bootstrap.Entry(run),
+)
+`,
+	})
+
+	pkg, fset := testutil.LoadPackage(t, dir, "./cmd/api")
+	_, err := Package(pkg, fset)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "StartStop start must be a method expression") {
+		t.Fatalf("unexpected error: %s", err)
+	}
+}
+
+func TestPackageRejectsInvalidHookSignature(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+)
+
+type Server struct{}
+
+func NewServer() *Server { return &Server{} }
+func start(*Server, context.Context) error { return nil }
+func run(context.Context, *Server) error { return nil }
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Provide(NewServer),
+	bootstrap.Lifecycle(
+		bootstrap.HookFunc(start, nil),
+	),
+	bootstrap.Entry(run),
+)
+`,
+	})
+
+	pkg, fset := testutil.LoadPackage(t, dir, "./cmd/api")
+	_, err := Package(pkg, fset)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "hook start context.Context must be the first parameter") {
+		t.Fatalf("unexpected error: %s", err)
+	}
+}
+
+func TestPackageRejectsEntryInsideModule(t *testing.T) {
+	dir := testutil.CreateModule(t, map[string]string{
+		"cmd/api/bootstrap.go": `
+package main
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+	"example.com/test/internal/di"
+)
+
+func run(context.Context) error { return nil }
+
+var spec = bootstrap.Server(
+	"api",
+	bootstrap.Include(di.Module),
+	bootstrap.Entry(run),
+)
+`,
+		"internal/di/module.go": `
+package di
+
+import (
+	"context"
+
+	"github.com/mayahiro/go-bootstrap/bootstrap"
+)
+
+func run(context.Context) error { return nil }
+
+var Module = bootstrap.Module(
+	bootstrap.Entry(run),
+)
+`,
+	})
+
+	pkg, fset := testutil.LoadPackage(t, dir, "./cmd/api")
+	_, err := Package(pkg, fset)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "Entry is not allowed inside Module") {
+		t.Fatalf("unexpected error: %s", err)
+	}
+}

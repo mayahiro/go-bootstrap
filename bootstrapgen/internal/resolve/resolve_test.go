@@ -253,3 +253,128 @@ func TestBuildRejectsDuplicateOverrideBindings(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 }
+
+func TestBuildMissingProviderErrorIncludesEntryFieldPosition(t *testing.T) {
+	pkg := types.NewPackage("example.com/app", "app")
+	serviceType := types.NewNamed(types.NewTypeName(0, pkg, "Service", nil), types.NewStruct(nil, nil), nil)
+
+	spec := &model.Spec{
+		Entry: model.Entry{
+			Name:     "run",
+			Position: model.Position{File: "bootstrap.go", Line: 30, Column: 1},
+			Inputs: []model.EntryInput{
+				{
+					Type: types.NewStruct(nil, nil),
+					Fields: []model.Field{
+						{Name: "Service", Type: types.NewPointer(serviceType), Position: model.Position{File: "bootstrap.go", Line: 31, Column: 2}},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := Build(spec)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	message := err.Error()
+	for _, fragment := range []string{
+		"provider not found for *example.com/app.Service",
+		"entry field run.Service at bootstrap.go:31:2 requires *example.com/app.Service",
+	} {
+		if !strings.Contains(message, fragment) {
+			t.Fatalf("missing fragment %q in error: %s", fragment, message)
+		}
+	}
+}
+
+func TestBuildMissingProviderErrorIncludesLifecycleHookDependencyPath(t *testing.T) {
+	pkg := types.NewPackage("example.com/app", "app")
+	configType := types.NewNamed(types.NewTypeName(0, pkg, "Config", nil), types.NewStruct(nil, nil), nil)
+	serverType := types.NewNamed(types.NewTypeName(0, pkg, "Server", nil), types.NewStruct(nil, nil), nil)
+
+	spec := &model.Spec{
+		Entry: model.Entry{
+			Name:     "run",
+			Position: model.Position{File: "bootstrap.go", Line: 50, Column: 1},
+		},
+		Providers: []model.Provider{
+			{
+				Name:     "NewServer",
+				Position: model.Position{File: "bootstrap.go", Line: 20, Column: 1},
+				Inputs:   []types.Type{types.NewPointer(configType)},
+				Output:   types.NewPointer(serverType),
+			},
+		},
+		Lifecycles: []model.Lifecycle{
+			{
+				Kind: model.HookFuncLifecycle,
+				OnStart: &model.Function{
+					Name:     "startHook",
+					Position: model.Position{File: "bootstrap.go", Line: 40, Column: 1},
+					Inputs:   []types.Type{types.NewPointer(serverType)},
+				},
+			},
+		},
+	}
+
+	_, err := Build(spec)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	message := err.Error()
+	for _, fragment := range []string{
+		"provider not found for *example.com/app.Config",
+		"lifecycle hook startHook at bootstrap.go:40:1 requires *example.com/app.Server",
+		"provider NewServer at bootstrap.go:20:1 requires *example.com/app.Config",
+	} {
+		if !strings.Contains(message, fragment) {
+			t.Fatalf("missing fragment %q in error: %s", fragment, message)
+		}
+	}
+}
+
+func TestBuildRejectsDuplicateOverrideProviders(t *testing.T) {
+	pkg := types.NewPackage("example.com/app", "app")
+	serverType := types.NewNamed(types.NewTypeName(0, pkg, "Server", nil), types.NewStruct(nil, nil), nil)
+
+	spec := &model.Spec{
+		Entry: model.Entry{
+			Name:     "run",
+			Position: model.Position{File: "bootstrap.go", Line: 20, Column: 1},
+			Inputs: []model.EntryInput{
+				{Type: types.NewPointer(serverType)},
+			},
+		},
+		Overrides: []model.Provider{
+			{
+				Name:     "NewServerA",
+				Position: model.Position{File: "bootstrap.go", Line: 10, Column: 1},
+				Output:   types.NewPointer(serverType),
+			},
+			{
+				Name:     "NewServerB",
+				Position: model.Position{File: "bootstrap.go", Line: 12, Column: 1},
+				Output:   types.NewPointer(serverType),
+			},
+		},
+	}
+
+	_, err := Build(spec)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	message := err.Error()
+	for _, fragment := range []string{
+		"multiple providers for *example.com/app.Server",
+		"NewServerA at bootstrap.go:10:1 returns *example.com/app.Server",
+		"NewServerB at bootstrap.go:12:1 returns *example.com/app.Server",
+	} {
+		if !strings.Contains(message, fragment) {
+			t.Fatalf("missing fragment %q in error: %s", fragment, message)
+		}
+	}
+}
