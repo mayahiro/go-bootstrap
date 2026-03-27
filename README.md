@@ -214,3 +214,7 @@ The design is intentionally narrow so the generator can stay predictable.
 ## Local Development
 
 The modules are connected through the repo root `go.work`.
+
+## License
+
+This project is licensed under the MIT License. See [`LICENSE`](LICENSE).
