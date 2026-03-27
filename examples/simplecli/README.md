@@ -23,8 +23,11 @@ It demonstrates `bootstrap.CLI(...)`, grouped entry params through `bootstrap.In
 go generate ./examples/simplecli/cmd/hello
 ```
 
-## Build
+## Run or Build
 
 ```bash
+go run ./examples/simplecli/cmd/hello
 go build -o /tmp/simplecli ./examples/simplecli/cmd/hello
 ```
+
+Use the package path, not `./examples/simplecli/cmd/hello/main.go`. The generated `bootstrap_gen.go` file is part of the same package.

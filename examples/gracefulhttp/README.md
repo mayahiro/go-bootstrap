@@ -29,8 +29,21 @@ It demonstrates:
 go generate ./examples/gracefulhttp/cmd/api
 ```
 
-## Build
+## Run or Build
+
+Run or build the package path, not a single file path. `bootstrap_gen.go` is generated into `cmd/api`, so it is compiled together with `main.go` only when the package is selected as a whole.
 
 ```bash
+go run ./examples/gracefulhttp/cmd/api
 go build -o /tmp/gracefulhttp ./examples/gracefulhttp/cmd/api
 ```
+
+This does not work the same way:
+
+```bash
+go run ./examples/gracefulhttp/cmd/api/main.go
+go build ./examples/gracefulhttp/cmd/api/main.go
+```
+
+## Build
+Use the package path command above.

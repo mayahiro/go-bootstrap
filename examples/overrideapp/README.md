@@ -33,12 +33,16 @@ go generate ./examples/overrideapp/cmd/prod
 go generate ./examples/overrideapp/cmd/testapp
 ```
 
-## Build
+## Run or Build
 
 ```bash
+go run ./examples/overrideapp/cmd/prod
+go run ./examples/overrideapp/cmd/testapp
 go build -o /tmp/overrideapp-prod ./examples/overrideapp/cmd/prod
 go build -o /tmp/overrideapp-test ./examples/overrideapp/cmd/testapp
 ```
+
+Use the package paths, not `main.go` file paths. Each entrypoint depends on the generated `bootstrap_gen.go` file in the same package.
 
 This example is intended to answer:
 

@@ -98,6 +98,8 @@ go tool bootstrapgen ./cmd/api
 go build ./cmd/api
 ```
 
+Use package paths such as `./cmd/api`, not single-file paths such as `./cmd/api/main.go`. The generated `bootstrap_gen.go` file is compiled together with the rest of the package.
+
 For generator-specific CLI details, input expectations, and generator-side constraints, see [`bootstrapgen/README.md`](bootstrapgen/README.md).
 
 ## Core Concepts

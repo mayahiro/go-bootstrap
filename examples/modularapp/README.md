@@ -32,8 +32,11 @@ It demonstrates:
 go generate ./examples/modularapp/cmd/api
 ```
 
-## Build
+## Run or Build
 
 ```bash
+go run ./examples/modularapp/cmd/api
 go build -o /tmp/modularapp ./examples/modularapp/cmd/api
 ```
+
+Use the package path, not `./examples/modularapp/cmd/api/main.go`. The generated `bootstrap_gen.go` file lives in the same package and must be compiled together with it.

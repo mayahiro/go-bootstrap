@@ -27,8 +27,11 @@ This example is intended to be used through the monorepo root `go.work`. Its `go
 go generate ./examples/simpleapi/cmd/api
 ```
 
-## Build
+## Run or Build
 
 ```bash
+go run ./examples/simpleapi/cmd/api
 go build -o /tmp/simpleapi ./examples/simpleapi/cmd/api
 ```
+
+Use the package path, not `./examples/simpleapi/cmd/api/main.go`. The generated `bootstrap_gen.go` file lives in the same package and is only compiled when the package is selected as a whole.
