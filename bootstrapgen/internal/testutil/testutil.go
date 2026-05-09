@@ -15,7 +15,7 @@ func CreateModule(t *testing.T, files map[string]string) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	module := "module example.com/test\n\ngo 1.26.1\n\nrequire github.com/mayahiro/go-bootstrap v0.0.0\n\nreplace github.com/mayahiro/go-bootstrap => " + repoRoot(t) + "\n"
+	module := "module example.com/test\n\ngo 1.25.0\n\nrequire github.com/mayahiro/go-bootstrap v0.0.0\n\nreplace github.com/mayahiro/go-bootstrap => " + repoRoot(t) + "\n"
 
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(module), 0o644); err != nil {
 		t.Fatal(err)

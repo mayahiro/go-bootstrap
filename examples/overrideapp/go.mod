@@ -1,6 +1,6 @@
 module github.com/mayahiro/go-bootstrap/examples/overrideapp
 
-go 1.26.1
+go 1.25.0
 
 require github.com/mayahiro/go-bootstrap v0.0.0
 
